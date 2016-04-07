@@ -28,7 +28,11 @@ class NgramModel:
         sent_count = 0
         f = open(file_name, 'r')
         W_t = 0
+        line_count = 0
         for lines in f:
+            line_count += 1
+            if line_count % 5000 == 0:
+                print 'test time:' + str(line_count)
             token = lines.strip().split(' ')
             W_t += len(token)
             i = 0
@@ -86,8 +90,12 @@ class NgramModel:
             firstly go through the file to count words' ocurrence
             then cut the words with low frequency, resulting in word_number words
         '''
+        line_count = 0
         for lines in f:
             token = lines.strip().split(' ')
+            line_count += 1
+            if line_count % 5000 == 0:
+                print 'second time:' + str(line_count)
             for i in range(len(token)):
                 self.add_word_count(self.word_count, token[i])
         '''
@@ -99,8 +107,12 @@ class NgramModel:
         '''
             traverse the file again to count the number of co-ocurrence
         '''
+        line_count = 0
         f = open(file_name, 'r')
         for lines in f:
+            line_count += 1
+            if line_count % 5000 == 0:
+                print 'first time:' + str(line_count)
             token = lines.strip().split(' ')
             self.all_count += len(token)
             for i in range(len(token)):
