@@ -5,6 +5,7 @@ It is recommended to run this script on GPU, as recurrent
 networks are quite computationally intensive.
 If you try this script on new data, make sure your corpus
 has at least ~100k characters. ~1M is better.
+THEANO_FLAGS=device=gpu,floatX=float32
 '''
 
 from keras.models import Sequential
@@ -27,6 +28,7 @@ class RNN_language_model():
     word_map = {}
     word_count = {}
     file_line = 0
+    index_word = {}
 
     def __init__(self):
         return
@@ -42,18 +44,22 @@ class RNN_language_model():
             lines = lines.strip()
             token = lines.split(' ')
             for tmp in token:
-                self.add_map(tmp.strip())
+                tmp = tmp.strip().decode('utf-8').encode('utf-8')
+                self.add_map(tmp)
         self.word_map = sorted(self.word_map.items(),
                      key=operator.itemgetter(1))
         self.word_map.reverse()
         for i, tmp in enumerate(self.word_map):
-            if i > word_number: break
-            self.word_count[tmp] = i
-        self.word_count['UNKNOWN_WORD'] = i+1
+            word = tmp[0].decode('utf-8').encode('utf-8')
+            self.word_count[word] = i
+            self.index_word[i] = word
+            if i + 1 >= word_number: break
+        self.word_count['UNKNOWN_WORD'] = i+1 # ?
+        self.index_word[i+1] = 'UNKNOWN_WORD'
         print 'loading finishied, the original' \
               'word length is %d, %d after cutting' % (len(self.word_map),
                                                        len(self.word_count))
-        self.word_number = min(self.word_number, len(self.word_count))
+        self.word_number = len(self.word_count)
         del self.word_map
         f.close()
         self.f = open(self.file_name, 'r')
@@ -97,8 +103,8 @@ class RNN_language_model():
             line = self.f.readline()
             token = line.strip().split(' ')
             for i in range(0, len(token), self.sentence_len+1):
-                if i+self.sentence_len > len(token)-1:
-                    break
+                # if i+self.sentence_len > len(token)-1:
+                #     break
                 maxlen = min(len(token)-1, i+self.sentence_len)
                 if maxlen > len(token)-1:
                     break
@@ -107,7 +113,8 @@ class RNN_language_model():
         print('nb sequences:', len(sentences))
 
         print('Vectorization...')
-        X = np.zeros((len(sentences), maxlen, len(self.word_count)), dtype=np.bool)
+        X = np.zeros((len(sentences), self.sentence_len,
+                      len(self.word_count)), dtype=np.bool)
         y = np.zeros((len(sentences), len(self.word_count)), dtype=np.bool)
         for i, sentence in enumerate(sentences):
             for t, word in enumerate(sentence):
@@ -120,11 +127,35 @@ class RNN_language_model():
             y[i, self.word_count[nxt]] = 1
         return  X,y
 
-def sample(a, temperature=1.0):
-    # helper function to sample an index from a probability array
-    a = np.log(a) / temperature
-    a = np.exp(a) / np.sum(np.exp(a))
-    return np.argmax(np.random.multinomial(1, a, 1))
+    def generate(self, test_file, seed_length, gen_length, diversity=1):
+        f = open(test_file, 'r')
+        for lines in f:
+            token = lines.strip().decode('utf-8').encode('utf-8').split(' ')
+            generated = ''
+            sentence = token[0: seed_length]
+            for tmp in sentence:
+                generated += tmp + ' '
+            print 'diversity:' + str(diversity)
+            print('----- Generating with seed: "' + generated + '"')
+            for i in range(gen_length):
+                x = np.zeros((1, self.sentence_len, self.word_number))
+                for t, word in enumerate(sentence):
+                    if not self.word_count.has_key(word):
+                        word = 'UNKNOWN_WORD'
+                    x[0, t, self.word_count[word]] = 1
+                preds = self.model.predict(x, verbose=0)[0]
+                next_index = self.sample(preds, diversity)
+                next_word = self.index_word[next_index]
+                generated += next_word + ' '
+                sentence = sentence[1:]
+                sentence.append(next_word)
+            print 'generated sequences:' + generated
+
+    def sample(self, a, temperature=1.0):
+        # helper function to sample an index from a probability array
+        a = np.log(a) / temperature
+        a = np.exp(a) / np.sum(np.exp(a))
+        return np.argmax(np.random.multinomial(1, a, 1))
 
 rnn_model = RNN_language_model("../data/merge")
 rnn_model.build_model()
@@ -136,12 +167,11 @@ for iteration in range(1, 60):
     print('Iteration', iteration)
     for i in range(0, rnn_model.file_line / line_size + 1):
         X,y = rnn_model.read_file(line_size=line_size)
-        # if len(X) < 128:
-        #     continue
-        rnn_model.model.fit(X, y, batch_size=1, nb_epoch=1)
+        rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
     rnn_model.f.close()
     rnn_model.f = open(rnn_model.file_name, 'r')
-
+    for diversity in [0.2, 0.5, 1.0, 1.2]:
+        rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
     # start_index = random.randint(0, len(text) - maxlen - 1)
     #
     # for diversity in [0.2, 0.5, 1.0, 1.2]:
