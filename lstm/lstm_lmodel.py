@@ -49,10 +49,11 @@ class RNN_language_model():
         for i, tmp in enumerate(self.word_map):
             if i > word_number: break
             self.word_count[tmp] = i
-        self.word_count['UNKOWN_WORD'] = i+1
+        self.word_count['UNKNOWN_WORD'] = i+1
         print 'loading finishied, the original' \
               'word length is %d, %d after cutting' % (len(self.word_map),
                                                        len(self.word_count))
+        self.word_number = min(self.word_number, len(self.word_count))
         del self.word_map
         f.close()
         self.f = open(self.file_name, 'r')
@@ -92,13 +93,17 @@ class RNN_language_model():
         for i in range(0, line_size):
             if self.f.tell() == os.fstat(self.f.fileno()).st_size:
                 self.f.close()
-                self.f.open(self.file_name, 'r')
+                self.f = open(self.file_name, 'r')
             line = self.f.readline()
             token = line.strip().split(' ')
-            for i in range(0, len(token), self.sentence_len):
-                maxlen = math.max(len(token), i+self.sentence_len)
+            for i in range(0, len(token), self.sentence_len+1):
+                if i+self.sentence_len > len(token)-1:
+                    break
+                maxlen = min(len(token)-1, i+self.sentence_len)
+                if maxlen > len(token)-1:
+                    break
                 sentences.append(token[i: maxlen])
-                next_chars.append(token[i + maxlen])
+                next_chars.append(token[maxlen])
         print('nb sequences:', len(sentences))
 
         print('Vectorization...')
@@ -108,7 +113,7 @@ class RNN_language_model():
             for t, word in enumerate(sentence):
                 if not self.word_count.has_key(word):
                     word = 'UNKNOWN_WORD'
-                X[i, t, self.word_count] = 1
+                X[i, t, self.word_count[word]] = 1
             nxt = next_chars[i]
             if not self.word_count.has_key(next_chars[i]):
                 nxt = 'UNKNOWN_WORD'
@@ -129,11 +134,13 @@ for iteration in range(1, 60):
     print()
     print('-' * 50)
     print('Iteration', iteration)
-    for i in range(0, rnn_model.file_line / line_size):
+    for i in range(0, rnn_model.file_line / line_size + 1):
         X,y = rnn_model.read_file(line_size=line_size)
-        if len(X) < 128:
-            continue
-        rnn_model.model.fit(X, y, batch_size=128, nb_epoch=1)
+        # if len(X) < 128:
+        #     continue
+        rnn_model.model.fit(X, y, batch_size=1, nb_epoch=1)
+    rnn_model.f.close()
+    rnn_model.f = open(rnn_model.file_name, 'r')
 
     # start_index = random.randint(0, len(text) - maxlen - 1)
     #
