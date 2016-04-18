@@ -24,6 +24,7 @@ sys.setdefaultencoding('utf-8')
 
 # path = get_file('nietzsche.txt', origin="https://s3.amazonaws.com/text-datasets/nietzsche.txt")
 
+
 class RNN_language_model():
     word_map = {}
     word_count = {}
