@@ -152,6 +152,28 @@ class RNN_language_model():
                 sentence.append(next_word)
             print 'generated sequences:' + generated
 
+    def cal_prob(self, sent):
+        x = np.zeros((1, self.sentence_len, self.word_number))
+        mul = 1.0
+        for t, word in enumerate(sent):
+            if not self.word_count.has_key(word):
+                word = 'UNKNOWN_WORD'
+            preds = self.model.predict(x, verbose=0)[0][self.word_count[word]]
+            mul *= preds
+            x[0, t, self.word_count[word]] = 1
+        return mul
+
+    def cal_perplexity(self, test_file):
+        W_t = 0.0
+        res = 0.0
+        f = open(test_file, 'r')
+        for line in f:
+            token = line.strip()
+            W_t += len(token)
+            res += math.log(self.cal_prob(token), 2)
+        res *= -1 / W_t
+        return math.pow(2, res)
+
     def sample(self, a, temperature=1.0):
         # helper function to sample an index from a probability array
         a = np.log(a) / temperature
@@ -171,32 +193,7 @@ for iteration in range(1, 60):
         rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
     rnn_model.f.close()
     rnn_model.f = open(rnn_model.file_name, 'r')
-    for diversity in [0.2, 0.5, 1.0, 1.2]:
-        rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
-    # start_index = random.randint(0, len(text) - maxlen - 1)
-    #
+    perp = rnn_model.cal_perplexity('../data/gen')
+    print 'calculate perp:' + perp
     # for diversity in [0.2, 0.5, 1.0, 1.2]:
-    #     print()
-    #     print('----- diversity:', diversity)
-    #
-    #     generated = ''
-    #     sentence = text[start_index: start_index + maxlen]
-    #     generated += sentence
-    #     print('----- Generating with seed: "' + sentence + '"')
-    #     sys.stdout.write(generated)
-    #
-    #     for i in range(400):
-    #         x = np.zeros((1, maxlen, len(chars)))
-    #         for t, char in enumerate(sentence):
-    #             x[0, t, char_indices[char]] = 1.
-    #
-    #         preds = model.predict(x, verbose=0)[0]
-    #         next_index = sample(preds, diversity)
-    #         next_char = indices_char[next_index]
-    #
-    #         generated += next_char
-    #         sentence = sentence[1:] + next_char
-    #
-    #         sys.stdout.write(next_char)
-    #         sys.stdout.flush()
-    #     print()
+    #     rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
