@@ -161,17 +161,24 @@ class RNN_language_model():
             preds = self.model.predict(x, verbose=0)[0][self.word_count[word]]
             mul *= preds
             x[0, t, self.word_count[word]] = 1
+        print 'prob of sent:' + str(mul)
         return mul
 
     def cal_perplexity(self, test_file):
         W_t = 0.0
         res = 0.0
         f = open(test_file, 'r')
+        i = 0
+        count = 0
         for line in f:
+            print count
+            count += 1
             token = line.strip()
-            W_t += len(token)
-            res += math.log(self.cal_prob(token), 2)
-        res *= -1 / W_t
+            for i in range(0, len(token)-1, self.sentence_len):
+                tmp = token[i:i+self.sentence_len]
+                W_t = len(tmp)
+                res += -1.0 / W_t * math.log(self.cal_prob(tmp), 2)
+            print res
         return math.pow(2, res)
 
     def sample(self, a, temperature=1.0):
@@ -194,6 +201,6 @@ for iteration in range(1, 60):
     rnn_model.f.close()
     rnn_model.f = open(rnn_model.file_name, 'r')
     perp = rnn_model.cal_perplexity('../data/gen')
-    print 'calculate perp:' + perp
+    print 'calculate perp:' + str(perp)
     # for diversity in [0.2, 0.5, 1.0, 1.2]:
     #     rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
