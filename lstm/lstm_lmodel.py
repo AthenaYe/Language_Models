@@ -156,6 +156,7 @@ class RNN_language_model():
         x = np.zeros((1, self.sentence_len, self.word_number))
         mul = 1.0
         for t, word in enumerate(sent):
+            word = word.decode('utf-8').encode('utf-8')
             if not self.word_count.has_key(word):
                 word = 'UNKNOWN_WORD'
             preds = self.model.predict(x, verbose=0)[0][self.word_count[word]]
@@ -173,12 +174,17 @@ class RNN_language_model():
         for line in f:
             print count
             count += 1
-            token = line.strip()
+            token = line.strip().decode('utf-8').encode('utf-8').split(' ')
             for i in range(0, len(token)-1, self.sentence_len):
                 tmp = token[i:i+self.sentence_len]
-                W_t = len(tmp)
-                res += -1.0 / W_t * math.log(self.cal_prob(tmp), 2)
-            print res
+                W_t += len(tmp)
+                calprob = self.cal_prob(tmp)
+                res += math.log(calprob, 2)
+        res *= -1 / W_t
+        print res, W_t
+        if res > 40:
+            print "perplexity very high, entropy is" + str(res)
+            return -1
         return math.pow(2, res)
 
     def sample(self, a, temperature=1.0):
