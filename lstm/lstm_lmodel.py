@@ -10,6 +10,7 @@ THEANO_FLAGS=device=gpu,floatX=float32
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation, Dropout
+from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM
 from keras.utils.data_utils import get_file
 import numpy as np
@@ -19,9 +20,11 @@ import os
 import operator
 import math
 import timeit
+import requests
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
+
 
 # path = get_file('nietzsche.txt', origin="https://s3.amazonaws.com/text-datasets/nietzsche.txt")
 
@@ -31,13 +34,16 @@ class RNN_language_model():
     word_count = {}
     file_line = 0
     index_word = {}
+    word_embedding = {}
 
     def __init__(self):
         return
 
-    def __init__(self, file_name, word_number=8000, sentence_len=10):
+    def __init__(self, word_vec_url, file_name, word_number=80000, sentence_len=10):
+        self.word_vec_url = word_vec_url
         self.file_name = file_name
         self.word_number = word_number
+        self.word_dimension = -1
         self.sentence_len = sentence_len
         f = open(file_name, 'r')
         print 'in init: start to load file:' + file_name
@@ -57,11 +63,34 @@ class RNN_language_model():
         self.word_map.reverse()
         for i, tmp in enumerate(self.word_map):
             word = tmp[0].decode('utf-8').encode('utf-8')
-            self.word_count[word] = i
-            self.index_word[i] = word
-            if i + 1 >= word_number: break
-        self.word_count['UNKNOWN_WORD'] = i+1 # ?
-        self.index_word[i+1] = 'UNKNOWN_WORD'
+            # zero is for masking
+            self.word_count[word] = i + 1
+            self.index_word[i + 1] = word
+            if i + 2 >= word_number: break
+        for word in self.word_count:
+            res = requests.get(self.word_vec_url + word.decode('utf-8').encode('utf-8'))
+            if res.status_code == 200:
+                self.word_embedding[word.decode('utf-8').encode('utf-8')] = [float(values) for values in res.text.strip().split(' ')]
+                if self.word_dimension == -1:
+                    self.word_dimension = len(self.word_embedding[word])
+            else:
+                self.word_embedding[word] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
+        self.word_count['UNKNOWN_WORD'] = len(self.word_map) + 1 # ?
+        self.index_word[len(self.word_map) + 1] = 'UNKNOWN_WORD'
+        print 'UNknown word index' + str(i+2)
+        self.word_embedding['UNKNOWN_WORD'] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
+        self.word_embedding[''] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
+        # adding one for mask
+        self.n_symbols = len(self.word_count) + 1
+        self.embedding_weights = np.zeros((self.n_symbols+1, self.word_dimension))
+        for index, word in self.index_word.items():
+            embed = []
+            if self.word_embedding.has_key(word):
+                print self.word_embedding[word]
+                embed = self.word_embedding[word]
+            else:
+                embed = self.word_embedding['UNKNOWN_WORD']
+            self.embedding_weights[index,:] = np.array(embed)
         print 'loading finishied, the original' \
               'word length is %d, %d after cutting' % (len(self.word_map),
                                                        len(self.word_count))
@@ -81,14 +110,17 @@ class RNN_language_model():
         # build the model: 2 stacked LSTM
         print('Build model...')
         self.model = Sequential()
+        self.model.add(Embedding(output_dim=512,
+                        input_dim=self.n_symbols + 1,
+                        mask_zero=True, weights=[self.embedding_weights]))
         self.model.add(LSTM(512, return_sequences=True,
-                       input_shape=(self.sentence_len, self.word_number)))
+                       input_shape=(self.sentence_len, self.word_dimension)))
         self.model.add(Dropout(0.2))
-        self.model.add(LSTM(512, return_sequences=False))
-        self.model.add(Dropout(0.2))
+    #    self.model.add(LSTM(512, return_sequences=False))
+    #    self.model.add(Dropout(0.2))
         self.model.add(Dense(self.word_number))
         self.model.add(Activation('softmax'))
-        self.model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+        self.model.compile(loss='categorical_crossentropy', optimizer='adadelta')
         print('build finished.')
 
     def read_file(self, line_size=1000):
@@ -199,7 +231,7 @@ class RNN_language_model():
         a = np.exp(a) / np.sum(np.exp(a))
         return np.argmax(np.random.multinomial(1, a, 1))
 
-rnn_model = RNN_language_model("../data/train_data")
+rnn_model = RNN_language_model("http://localhost:8000/vector?w=", "../data/test")
 rnn_model.build_model()
 # train the model, output generated text after each iteration
 line_size = 1000
@@ -213,7 +245,7 @@ for iteration in range(1, 60):
         rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
     rnn_model.f.close()
     rnn_model.f = open(rnn_model.file_name, 'r')
-    perp = rnn_model.cal_perplexity('../data/test_data')
+    perp = rnn_model.cal_perplexity('../data/test')
     print 'calculate perp:' + str(perp)
     stop = timeit.default_timer()
     print 'time per iter:  ' + str(stop - start)
