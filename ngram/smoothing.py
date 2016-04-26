@@ -13,16 +13,19 @@ def addcitive_smoothing(i, token, V, dict, combine_dict, gram, all_count):
         while True:
             if j < 0 or i - j >= gram:
                 break
-            concat = concat + token[j].encode('utf-8').decode('utf-8')
+            concat = token[j].encode('utf-8').decode('utf-8') + concat
             j -= 1
         num1 = 0
         if combine_dict.has_key(concat.encode('utf-8').decode('utf-8')):
             num1 = combine_dict[concat.encode('utf-8').decode('utf-8')]
+        elif dict.has_key(concat.encode('utf-8').decode('utf-8')):
+            num1 = dict[concat.encode('utf-8').decode('utf-8')]
         num2 = 0
-        if dict.has_key(token[i].encode('utf-8').decode('utf-8')):
-            num2 = dict[token[i].encode('utf-8').decode('utf-8')]
+        concat += token[i].encode('utf-8').decode('utf-8')
+        if combine_dict.has_key(concat):
+            num2 = combine_dict[concat]
 
-    return (1.0 + num1) / (1 * V + num2)
+    return (1.0 + num2) / (1 * V + num1)
     #    return (num1 + 1) * 1.0 / (num2 + 15)
 
 def sentence_addictive_smoothing(token, V, dict, combine_dict, gram, all_count):

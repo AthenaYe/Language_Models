@@ -18,6 +18,7 @@ import sys
 import os
 import operator
 import math
+import timeit
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
@@ -40,7 +41,11 @@ class RNN_language_model():
         self.sentence_len = sentence_len
         f = open(file_name, 'r')
         print 'in init: start to load file:' + file_name
+        count = 0
         for lines in f:
+            count += 1
+            if count % 500000 == 0:
+                print count
             self.file_line += 1
             lines = lines.strip()
             token = lines.split(' ')
@@ -172,8 +177,9 @@ class RNN_language_model():
         i = 0
         count = 0
         for line in f:
-            print count
             count += 1
+            if count % 5000 == 0:
+                print "test" + str(count)
             token = line.strip().decode('utf-8').encode('utf-8').split(' ')
             for i in range(0, len(token)-1, self.sentence_len):
                 tmp = token[i:i+self.sentence_len]
@@ -193,7 +199,7 @@ class RNN_language_model():
         a = np.exp(a) / np.sum(np.exp(a))
         return np.argmax(np.random.multinomial(1, a, 1))
 
-rnn_model = RNN_language_model("../data/merge")
+rnn_model = RNN_language_model("../data/train_data")
 rnn_model.build_model()
 # train the model, output generated text after each iteration
 line_size = 1000
@@ -201,12 +207,15 @@ for iteration in range(1, 60):
     print()
     print('-' * 50)
     print('Iteration', iteration)
+    start = timeit.default_timer()
     for i in range(0, rnn_model.file_line / line_size + 1):
         X,y = rnn_model.read_file(line_size=line_size)
         rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
     rnn_model.f.close()
     rnn_model.f = open(rnn_model.file_name, 'r')
-    perp = rnn_model.cal_perplexity('../data/gen')
+    perp = rnn_model.cal_perplexity('../data/test_data')
     print 'calculate perp:' + str(perp)
+    stop = timeit.default_timer()
+    print 'time per iter:  ' + str(stop - start)
     # for diversity in [0.2, 0.5, 1.0, 1.2]:
     #     rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
