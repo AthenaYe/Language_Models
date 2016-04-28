@@ -9,7 +9,7 @@ THEANO_FLAGS=device=gpu,floatX=float32
 '''
 
 from keras.models import Sequential
-from keras.layers.core import Dense, Activation, Dropout
+from keras.layers.core import Dense, Activation, Dropout, Masking
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM
 from keras.utils.data_utils import get_file
@@ -21,6 +21,7 @@ import operator
 import math
 import timeit
 import requests
+
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
@@ -40,6 +41,15 @@ class RNN_language_model():
         return
 
     def __init__(self, word_vec_url, file_name, word_number=80000, sentence_len=10):
+        '''
+        :param word_vec_url: url of Word2vec service
+        :param file_name: training file name
+        :param word_number: size of lexicon
+        :param sentence_len: maximum sentence length
+        :param word_dimension: word vector dimension
+        :param n_symbols: size of lexicon, including masking
+        :return: None
+        '''
         self.word_vec_url = word_vec_url
         self.file_name = file_name
         self.word_number = word_number
@@ -75,18 +85,18 @@ class RNN_language_model():
                     self.word_dimension = len(self.word_embedding[word])
             else:
                 self.word_embedding[word] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
-        self.word_count['UNKNOWN_WORD'] = len(self.word_map) + 1 # ?
+        self.word_count['UNKNOWN_WORD'] = len(self.word_map) + 1
         self.index_word[len(self.word_map) + 1] = 'UNKNOWN_WORD'
         print 'UNknown word index' + str(i+2)
         self.word_embedding['UNKNOWN_WORD'] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
         self.word_embedding[''] = [np.random.uniform(-0.1, 0.1) for i in range(0, self.word_dimension)]
         # adding one for mask
         self.n_symbols = len(self.word_count) + 1
-        self.embedding_weights = np.zeros((self.n_symbols+1, self.word_dimension))
+        self.embedding_weights = np.zeros((self.n_symbols+1, self.word_dimension)) # ?
         for index, word in self.index_word.items():
             embed = []
             if self.word_embedding.has_key(word):
-                print self.word_embedding[word]
+            #    print self.word_embedding[word]
                 embed = self.word_embedding[word]
             else:
                 embed = self.word_embedding['UNKNOWN_WORD']
@@ -110,15 +120,17 @@ class RNN_language_model():
         # build the model: 2 stacked LSTM
         print('Build model...')
         self.model = Sequential()
-        self.model.add(Embedding(output_dim=512,
-                        input_dim=self.n_symbols + 1,
+        self.model.add(Embedding(output_dim=self.word_dimension,
+                        input_dim=self.n_symbols+1, # oh my goodness is it n_symbols + 1 or n_symbols
                         mask_zero=True, weights=[self.embedding_weights]))
+        self.model.add(Masking(mask_value=0,
+                               input_shape=(self.sentence_len, self.word_dimension)))
         self.model.add(LSTM(512, return_sequences=True,
                        input_shape=(self.sentence_len, self.word_dimension)))
         self.model.add(Dropout(0.2))
-    #    self.model.add(LSTM(512, return_sequences=False))
-    #    self.model.add(Dropout(0.2))
-        self.model.add(Dense(self.word_number))
+        self.model.add(LSTM(512, return_sequences=False))
+        self.model.add(Dropout(0.2))
+        self.model.add(Dense(self.n_symbols))
         self.model.add(Activation('softmax'))
         self.model.compile(loss='categorical_crossentropy', optimizer='adadelta')
         print('build finished.')
@@ -130,8 +142,6 @@ class RNN_language_model():
         # indices_char = dict((i, c) for i, c in enumerate(chars))
 
         # cut the text in semi-redundant sequences of maxlen characters
-        maxlen = self.sentence_len
-        step = 3
         sentences = []
         next_chars = []
         for i in range(0, line_size):
@@ -151,18 +161,17 @@ class RNN_language_model():
         print('nb sequences:', len(sentences))
 
         print('Vectorization...')
-        X = np.zeros((len(sentences), self.sentence_len,
-                      len(self.word_count)), dtype=np.bool)
-        y = np.zeros((len(sentences), len(self.word_count)), dtype=np.bool)
+        X = np.zeros((len(sentences), self.sentence_len), dtype=np.int)
+        y = np.zeros((len(sentences), self.n_symbols), dtype=np.bool)
         for i, sentence in enumerate(sentences):
             for t, word in enumerate(sentence):
                 if not self.word_count.has_key(word):
                     word = 'UNKNOWN_WORD'
-                X[i, t, self.word_count[word]] = 1
+                X[i, t] = self.word_count[word]
             nxt = next_chars[i]
             if not self.word_count.has_key(next_chars[i]):
                 nxt = 'UNKNOWN_WORD'
-            y[i, self.word_count[nxt]] = 1
+            y[i, self.word_count[nxt]] = True
         return  X,y
 
     def generate(self, test_file, seed_length, gen_length, diversity=1):
@@ -176,13 +185,16 @@ class RNN_language_model():
             print 'diversity:' + str(diversity)
             print('----- Generating with seed: "' + generated + '"')
             for i in range(gen_length):
-                x = np.zeros((1, self.sentence_len, self.word_number))
+                x = np.zeros((1, self.sentence_len), dtype=np.int)
                 for t, word in enumerate(sentence):
+                    word = word.decode('utf-8').encode('utf-8')
                     if not self.word_count.has_key(word):
                         word = 'UNKNOWN_WORD'
-                    x[0, t, self.word_count[word]] = 1
+                    x[0, t] = self.word_count[word]
                 preds = self.model.predict(x, verbose=0)[0]
                 next_index = self.sample(preds, diversity)
+                if next_index == 0: # end signal?
+                    break
                 next_word = self.index_word[next_index]
                 generated += next_word + ' '
                 sentence = sentence[1:]
@@ -190,7 +202,7 @@ class RNN_language_model():
             print 'generated sequences:' + generated
 
     def cal_prob(self, sent):
-        x = np.zeros((1, self.sentence_len, self.word_number))
+        x = np.zeros((1, self.sentence_len))
         mul = 1.0
         for t, word in enumerate(sent):
             word = word.decode('utf-8').encode('utf-8')
@@ -198,7 +210,7 @@ class RNN_language_model():
                 word = 'UNKNOWN_WORD'
             preds = self.model.predict(x, verbose=0)[0][self.word_count[word]]
             mul *= preds
-            x[0, t, self.word_count[word]] = 1
+            x[0, t] = self.word_count[word]
         print 'prob of sent:' + str(mul)
         return mul
 
@@ -250,4 +262,4 @@ for iteration in range(1, 60):
     stop = timeit.default_timer()
     print 'time per iter:  ' + str(stop - start)
     # for diversity in [0.2, 0.5, 1.0, 1.2]:
-    #     rnn_model.generate('../data/gen', 5, 20, diversity=diversity)
+    #     rnn_model.generate('../data/test', 5, 20, diversity=diversity)
