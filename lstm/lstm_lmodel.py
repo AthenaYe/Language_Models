@@ -21,6 +21,7 @@ import operator
 import math
 import timeit
 import requests
+from keras.models import model_from_json
 
 
 reload(sys)
@@ -40,7 +41,8 @@ class RNN_language_model():
     def __init__(self):
         return
 
-    def __init__(self, word_vec_url, file_name, word_number=80000, sentence_len=10):
+    def __init__(self, word_vec_url, file_name,
+                 word_number=80000, sentence_len=10):
         '''
         :param word_vec_url: url of Word2vec service
         :param file_name: training file name
@@ -48,6 +50,7 @@ class RNN_language_model():
         :param sentence_len: maximum sentence length
         :param word_dimension: word vector dimension
         :param n_symbols: size of lexicon, including masking
+        :param file_line: record which line currently reading
         :return: None
         '''
         self.word_vec_url = word_vec_url
@@ -55,6 +58,7 @@ class RNN_language_model():
         self.word_number = word_number
         self.word_dimension = -1
         self.sentence_len = sentence_len
+        self.file_line = 0
         f = open(file_name, 'r')
         print 'in init: start to load file:' + file_name
         count = 0
@@ -62,7 +66,6 @@ class RNN_language_model():
             count += 1
             if count % 500000 == 0:
                 print count
-            self.file_line += 1
             lines = lines.strip()
             token = lines.split(' ')
             for tmp in token:
@@ -116,7 +119,7 @@ class RNN_language_model():
             self.word_map[word] = 1
         return
 
-    def build_model(self):
+    def build_model(self, load_weights=False, weights_file=''):
         # build the model: 2 stacked LSTM
         print('Build model...')
         self.model = Sequential()
@@ -133,22 +136,44 @@ class RNN_language_model():
         self.model.add(Dense(self.n_symbols))
         self.model.add(Activation('softmax'))
         self.model.compile(loss='categorical_crossentropy', optimizer='adadelta')
+        try:
+            if load_weights == True:
+                self.model.load_weights(weights_file)
+        except:
+            print "no such file called" + weights_file + "!!!"
         print('build finished.')
 
-    def read_file(self, line_size=1000):
-        # print('corpus length:', len(text))
+    def move_file_pointer(self):
+        if 'file_line' in os.listdir('.'):
+            f = open('file_line', 'r')
+            prev_line = long(f.readline())
+            f.close()
+            while True:
+                # need not to be exactly the same line
+                if self.file_line in range(prev_line-10, prev_line+10):
+                    break
+                if self.f.tell() == os.fstat(self.f.fileno()).st_size:
+                    self.f.close()
+                    self.f = open(self.file_name, 'r')
+                    self.file_line = 0
+                self.f.readline()
+                self.file_line += 1
+        else:
+            print 'no file_line file!'
+            return
 
-        # char_indices = dict((c, i) for i, c in enumerate(chars))
-        # indices_char = dict((i, c) for i, c in enumerate(chars))
-
-        # cut the text in semi-redundant sequences of maxlen characters
+    def read_file(self, line_size=1000, read_file_line=False):
+        if read_file_line == True:
+            self.move_file_pointer()
         sentences = []
         next_chars = []
         for i in range(0, line_size):
             if self.f.tell() == os.fstat(self.f.fileno()).st_size:
                 self.f.close()
                 self.f = open(self.file_name, 'r')
+                self.file_line = 0
             line = self.f.readline()
+            self.file_line += 1
             token = line.strip().split(' ')
             for i in range(0, len(token), self.sentence_len+1):
                 # if i+self.sentence_len > len(token)-1:
@@ -174,6 +199,25 @@ class RNN_language_model():
             y[i, self.word_count[nxt]] = True
         return  X,y
 
+    def generate_single_sentence(self, sentence, gen_length, diversity=1):
+        generated = ''
+        for i in range(gen_length):
+            x = np.zeros((1, self.sentence_len), dtype=np.int)
+            for t, word in enumerate(sentence):
+                word = word.decode('utf-8').encode('utf-8')
+                if not self.word_count.has_key(word):
+                    word = 'UNKNOWN_WORD'
+                x[0, t] = self.word_count[word]
+            preds = self.model.predict(x, verbose=0)[0]
+            next_index = self.sample(preds, diversity)
+            if next_index == 0: # end signal?
+                break
+            next_word = self.index_word[next_index]
+            generated += next_word + ' '
+            sentence = sentence[1:]
+            sentence.append(next_word)
+        return generated
+
     def generate(self, test_file, seed_length, gen_length, diversity=1):
         f = open(test_file, 'r')
         for lines in f:
@@ -184,21 +228,9 @@ class RNN_language_model():
                 generated += tmp + ' '
             print 'diversity:' + str(diversity)
             print('----- Generating with seed: "' + generated + '"')
-            for i in range(gen_length):
-                x = np.zeros((1, self.sentence_len), dtype=np.int)
-                for t, word in enumerate(sentence):
-                    word = word.decode('utf-8').encode('utf-8')
-                    if not self.word_count.has_key(word):
-                        word = 'UNKNOWN_WORD'
-                    x[0, t] = self.word_count[word]
-                preds = self.model.predict(x, verbose=0)[0]
-                next_index = self.sample(preds, diversity)
-                if next_index == 0: # end signal?
-                    break
-                next_word = self.index_word[next_index]
-                generated += next_word + ' '
-                sentence = sentence[1:]
-                sentence.append(next_word)
+            generated += self.generate_single_sentence(
+                generated, sentence, gen_length, diversity
+            )
             print 'generated sequences:' + generated
 
     def cal_prob(self, sent):
@@ -241,25 +273,11 @@ class RNN_language_model():
         # helper function to sample an index from a probability array
         a = np.log(a) / temperature
         a = np.exp(a) / np.sum(np.exp(a))
-        return np.argmax(np.random.multinomial(1, a, 1))
+        return np.argmax(np.random.multinomial(1, a, 1))\
 
-rnn_model = RNN_language_model("http://localhost:8000/vector?w=", "../data/test")
-rnn_model.build_model()
-# train the model, output generated text after each iteration
-line_size = 1000
-for iteration in range(1, 60):
-    print()
-    print('-' * 50)
-    print('Iteration', iteration)
-    start = timeit.default_timer()
-    for i in range(0, rnn_model.file_line / line_size + 1):
-        X,y = rnn_model.read_file(line_size=line_size)
-        rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
-    rnn_model.f.close()
-    rnn_model.f = open(rnn_model.file_name, 'r')
-    perp = rnn_model.cal_perplexity('../data/test')
-    print 'calculate perp:' + str(perp)
-    stop = timeit.default_timer()
-    print 'time per iter:  ' + str(stop - start)
-    # for diversity in [0.2, 0.5, 1.0, 1.2]:
-    #     rnn_model.generate('../data/test', 5, 20, diversity=diversity)
+    def save(self, weights_file_name, file_line_name):
+        self.model.save_weights(weights_file_name)
+        f = open(file_line_name, 'w')
+        f.write(str(self.file_line))
+        f.close()
+

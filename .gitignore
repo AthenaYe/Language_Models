@@ -3,3 +3,6 @@ data
 .idea
 *log
 *err
+*json
+file_line
+*.h5
