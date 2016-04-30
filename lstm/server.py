@@ -9,7 +9,7 @@ reload(sys)
 sys.setdefaultencoding('UTF-8')
 
 rnn_model = lstm_lmodel.RNN_language_model("http://localhost:8000/vector?w=",
-                               "../data/test")
+                               "../data/test_data")
 rnn_model.build_model(load_weights=True, weights_file='my_model_weights_stable.h5')
 
 app = Flask(__name__)
