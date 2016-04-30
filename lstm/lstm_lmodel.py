@@ -42,7 +42,7 @@ class RNN_language_model():
         return
 
     def __init__(self, word_vec_url, file_name,
-                 word_number=8000, sentence_len=10):
+                 word_number=40000, sentence_len=10):
         '''
         :param word_vec_url: url of Word2vec service
         :param file_name: training file name

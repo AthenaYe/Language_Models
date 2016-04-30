@@ -19,7 +19,8 @@ def start():
             print('Batch', i)
             X,y = rnn_model.read_file(line_size=line_size, read_read_line=True)
             rnn_model.model.fit(X, y, batch_size=min(128, len(X)), nb_epoch=1)
-            os.remove('my_model_weights_dev.h5')
+            if 'my_model_weights_dev.h5' in os.listdir('.'):
+                os.remove('my_model_weights_dev.h5')
             rnn_model.save('my_model_weights_dev.h5', 'read_line')
         rnn_model.f.close()
         rnn_model.f = open(rnn_model.file_name, 'r')

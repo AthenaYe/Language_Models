@@ -33,4 +33,4 @@ def chat():
         res += '<p>' + tmp + '</p>'
     return res
 
-app.run(debug=True, host='localhost', port=8888)
+app.run(debug=False, host='localhost', port=8888)
